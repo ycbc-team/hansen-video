@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>抖音实时热榜</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', sans-serif;
+            background: #f0f0f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        /* ===== 页面容器 - 最大宽度750px ===== */
+        .page-wrap {
+            max-width: 750px;
+            margin: 0 auto;
+            padding: 16px 16px 32px;
+        }
+
+        /* ===== 导出按钮栏 - 不参与PDF导出 ===== */
+        .export-bar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            display: flex;
+            justify-content: flex-end;
+            padding: 10px 0 12px;
+            margin-bottom: 4px;
+        }
+        .btn-export-pdf {
+            background: #fff;
+            color: #6c5ce7;
+            border: 1.5px solid #6c5ce7;
+            border-radius: 20px;
+            padding: 7px 22px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .btn-export-pdf:hover { background: #f8f6ff; transform: translateY(-1px); }
+        .btn-export-pdf:active { transform: translateY(0); }
+
+        /* ===== PDF内容区域 ===== */
+        .pdf-content { background: transparent; }
+
+        /* ===== 头部卡片 - 紫色渐变 ===== */
+        .hot-title-wrap {
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+            border-radius: 14px;
+            padding: 24px 24px 20px;
+            margin-bottom: 18px;
+            color: #fff;
+            text-align: center;
+        }
+        .hot-title-wrap h1 {
+            font-size: 22px; font-weight: 800;
+            letter-spacing: 0.5px;
+        }
+        .hot-update-time {
+            margin-top: 4px;
+            font-size: 12.5px;
+            opacity: 0.85;
+        }
+
+        /* 统计卡片区 */
+        .stats-row {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.18);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 11px;
+            padding: 11px 20px;
+            min-width: 95px;
+            text-align: center;
+        }
+        .stat-num { font-size: 21px; font-weight: 800; }
+        .stat-label { font-size: 11.5px; opacity: 0.85; margin-top: 2px; }
+
+        /* ===== 表格区域 ===== */
+        .table-area { background: transparent; }
+
+        /* 卡片式表格 */
+        .hot-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0 6px;
+        }
+        .hot-table thead { display: none; }
+
+        .hot-table tbody tr {
+            background: #fff;
+            border-radius: 10px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        .hot-table tbody tr:hover {
+            transform: translateY(-1.5px);
+            box-shadow: 0 6px 20px rgba(108,92,231,0.15);
+        }
+
+        .hot-table td {
+            padding: 13px 14px;
+            vertical-align: middle;
+            border: none;
+        }
+        .hot-table tr td:first-child { border-radius: 10px 0 0 10px; }
+        .hot-table tr td:last-child { border-radius: 0 10px 10px 0; }
+
+        /* 排名序号 */
+        .rank-cell { width: 58px; text-align: center; }
+
+        /* TOP3 奖牌徽章 */
+        .rank-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 31px; height: 31px;
+            border-radius: 50%;
+            font-size: 14px;
+            font-weight: 800;
+            position: relative;
+        }
+        /* TOP1 紫红 */
+        .rank-badge.top1 {
+            background: linear-gradient(135deg, #e056a0, #a855f7);
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(168,85,247,0.35);
+        }
+        /* TOP2 蓝紫 */
+        .rank-badge.top2 {
+            background: linear-gradient(135deg, #6c5ce7, #74b9ff);
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(108,92,231,0.30);
+        }
+        /* TOP3 浅紫 */
+        .rank-badge.top3 {
+            background: linear-gradient(135deg, #a29bfe, #dfe6e9);
+            color: #6c5ce7;
+            box-shadow: 0 2px 8px rgba(162,155,254,0.35);
+        }
+        /* 4+ 序号 */
+        .rank-normal {
+            font-size: 13px;
+            font-weight: 700;
+            color: #555;
+        }
+
+        /* TOP1-3 行左侧色条 + 背景色 */
+        .hot-table tbody tr.row-top1 { background: linear-gradient(90deg, rgba(168,85,247,0.07), #fff 6%); }
+        .hot-table tbody tr.row-top2 { background: linear-gradient(90deg, rgba(108,92,231,0.07), #fff 6%); }
+        .hot-table tbody tr.row-top3 { background: linear-gradient(90deg, rgba(162,155,254,0.09), #fff 6%); }
+
+        .hot-table tbody tr.row-top1 > td:first-child { border-left: 3.5px solid #a855f7; }
+        .hot-table tbody tr.row-top2 > td:first-child { border-left: 3.5px solid #6c5ce7; }
+        .hot-table tbody tr.row-top3 > td:first-child { border-left: 3.5px solid #a29bfe; }
+
+        /* 标题描述 */
+        .info-cell {}
+        .topic-title-link {
+            text-decoration: none;
+            display: block;
+        }
+        .topic-title-link:hover .topic-title {
+            color: #6c5ce7;
+        }
+        .topic-title {
+            font-size: 14.5px;
+            font-weight: 650;
+            color: #222;
+            line-height: 1.45;
+            word-break: break-all;
+            transition: color 0.2s ease;
+        }
+        .topic-desc {
+            font-size: 12.5px;
+            color: #888;
+            margin-top: 3px;
+            line-height: 1.4;
+            word-break: break-all;
+        }
+
+        /* 热度值 - 纯紫色 */
+        .heat-cell { text-align: right; white-space: nowrap; width: 110px; }
+        .heat-value {
+            font-size: 14px;
+            font-weight: 800;
+            color: #6c5ce7;
+        }
+
+        /* 标签 */
+        .tag {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 9px;
+            border-radius: 10px;
+            margin-right: 4px;
+            vertical-align: middle;
+        }
+        .tag-hot { background: rgba(231,76,60,0.08); color: #e74c3c; }
+        .tag-new { background: rgba(52,152,219,0.08); color: #3498db; }
+        .tag-hot-rising { background: rgba(230,126,34,0.1); color: #e67e22; }
+        .tag-descend { background: rgba(149,165,166,0.1); color: #7f8c8d; }
+        .tag-steady { background: rgba(39,174,96,0.1); color: #27ae60; }
+
+        /* 时间标签 */
+        .time-tag {
+            font-size: 11.5px;
+            color: #999;
+            white-space: nowrap;
+        }
+
+        /* 底部说明 */
+        .footer-note {
+            text-align: center;
+            font-size: 11.5px;
+            color: #bbb;
+            margin-top: 20px;
+            padding: 10px 0;
+        }
+
+        @media (max-width: 480px) {
+            .page-wrap { padding: 10px 8px 24px; }
+            .hot-title-wrap { padding: 18px 16px 16px; }
+            .stats-row { gap: 8px; }
+            .stat-card { padding: 8px 14px; min-width: 75px; }
+            .stat-num { font-size: 18px; }
+            .hot-table td { padding: 10px 10px; }
+            .topic-title { font-size: 13.5px; }
+            .heat-value { font-size: 15px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="page-wrap">
+    <!-- 导出按钮（不包含在PDF内） -->
+    <div class="export-bar">
+        <button class="btn-export-pdf" onclick="exportPdf()">导出 PDF</button>
+    </div>
+
+    <!-- PDF内容区域 -->
+    <div class="pdf-content" id="pdfContent">
+
+        <!-- 头部 -->
+        <div class="hot-title-wrap">
+            <h1>🔥 抖音实时热榜</h1>
+            <div class="hot-update-time">更新时间：2026-11-04 14:00</div>
+            <div class="stats-row">
+                <div class="stat-card">
+                    <div class="stat-num" id="totalCount">--</div>
+                    <div class="stat-label">话题总数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-num" id="maxHeat">--</div>
+                    <div class="stat-label">最高热度</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-num" id="avgHeat">--</div>
+                    <div class="stat-label">平均热度</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 表格 -->
+        <div class="table-area">
+            <table class="hot-table">
+                <thead>
+                    <tr><th>排名</th><th>话题信息</th><th>热度值</th></tr>
+                </thead>
+                <tbody id="hotTableBody"></tbody>
+            </table>
+        </div>
+
+        <div class="footer-note">数据来源：抖音 · 仅供参考</div>
+    </div><!-- /pdf-content -->
+</div><!-- /page-wrap -->
+
+<script>
+// 行点击跳转 - 使用 location.href 避免 file:// 下 window.open 被拦截
+(function() {
+    function bindRowClick() {
+        var rows = document.querySelectorAll('.hot-table tbody tr[data-href]');
+        rows.forEach(function(row) {
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', function(e) {
+                if (e.target.closest('button, a, .btn-export-pdf')) return;
+                var url = this.getAttribute('data-href');
+                if (url) window.location.href = url;
+            });
+        });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bindRowClick);
+    } else {
+        bindRowClick();
+    }
+})();
+
+// 渲染热榜数据
+(function() {
+    var RAW = [
+  {
+    "index": 1,
+    "title": "一句你好胜过千言万语",
+    "hotCount": "11934294",
+    "url": "https://www.douyin.com/search/一句你好胜过千言万语",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度1193.4w",
+    "_fmtHeat": "1193.4w"
+  },
+  {
+    "index": 2,
+    "title": "TES对战IG",
+    "hotCount": "11892975",
+    "url": "https://www.douyin.com/search/TES对战IG",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度1189.3w",
+    "_fmtHeat": "1189.3w"
+  },
+  {
+    "index": 3,
+    "title": "五部门发文促消费基建升级",
+    "hotCount": "10820517",
+    "url": "https://www.douyin.com/search/五部门发文促消费基建升级",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度1082.1w",
+    "_fmtHeat": "1082.1w"
+  },
+  {
+    "index": 4,
+    "title": "IG战胜TES晋级四强",
+    "hotCount": "10712668",
+    "url": "https://www.douyin.com/search/IG战胜TES晋级四强",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度1071.3w",
+    "_fmtHeat": "1071.3w"
+  },
+  {
+    "index": 5,
+    "title": "美媒预计民主党将夺回参众两院",
+    "hotCount": "10150796",
+    "url": "https://www.douyin.com/search/美媒预计民主党将夺回参众两院",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度1015.1w",
+    "_fmtHeat": "1015.1w"
+  },
+  {
+    "index": 6,
+    "title": "这泰山是非爬不可吗",
+    "hotCount": "9984253",
+    "url": "https://www.douyin.com/search/这泰山是非爬不可吗",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度998.4w",
+    "_fmtHeat": "998.4w"
+  },
+  {
+    "index": 7,
+    "title": "闯入毛茸茸的奇妙世界",
+    "hotCount": "8792349",
+    "url": "https://www.douyin.com/search/闯入毛茸茸的奇妙世界",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度879.2w",
+    "_fmtHeat": "879.2w"
+  },
+  {
+    "index": 8,
+    "title": "觉醒吧我的厨艺天赋",
+    "hotCount": "8524698",
+    "url": "https://www.douyin.com/search/觉醒吧我的厨艺天赋",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度852.5w",
+    "_fmtHeat": "852.5w"
+  },
+  {
+    "index": 9,
+    "title": "TES告别S16舞台",
+    "hotCount": "7905578",
+    "url": "https://www.douyin.com/search/TES告别S16舞台",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度790.6w",
+    "_fmtHeat": "790.6w"
+  },
+  {
+    "index": 10,
+    "title": "苹果手机天气数据显示异常",
+    "hotCount": "7862777",
+    "url": "https://www.douyin.com/search/苹果手机天气数据显示异常",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度786.3w",
+    "_fmtHeat": "786.3w"
+  },
+  {
+    "index": 11,
+    "title": "特朗普向民主党人表示祝贺",
+    "hotCount": "7819104",
+    "url": "https://www.douyin.com/search/特朗普向民主党人表示祝贺",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度781.9w",
+    "_fmtHeat": "781.9w"
+  },
+  {
+    "index": 12,
+    "title": "小蓝叔对口型演绎大赏",
+    "hotCount": "7784553",
+    "url": "https://www.douyin.com/search/小蓝叔对口型演绎大赏",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度778.5w",
+    "_fmtHeat": "778.5w"
+  },
+  {
+    "index": 13,
+    "title": "智启京彩E路消谣",
+    "hotCount": "7767146",
+    "url": "https://www.douyin.com/search/智启京彩E路消谣",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度776.7w",
+    "_fmtHeat": "776.7w"
+  },
+  {
+    "index": 14,
+    "title": "曼联3:2逆转罗马",
+    "hotCount": "7761151",
+    "url": "https://www.douyin.com/search/曼联3:2逆转罗马",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度776.1w",
+    "_fmtHeat": "776.1w"
+  },
+  {
+    "index": 15,
+    "title": "现场见证IG挺进四强",
+    "hotCount": "7759274",
+    "url": "https://www.douyin.com/search/现场见证IG挺进四强",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度775.9w",
+    "_fmtHeat": "775.9w"
+  },
+  {
+    "index": 16,
+    "title": "我也拥有了亚麻发色厉娜",
+    "hotCount": "7753252",
+    "url": "https://www.douyin.com/search/我也拥有了亚麻发色厉娜",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度775.3w",
+    "_fmtHeat": "775.3w"
+  },
+  {
+    "index": 17,
+    "title": "张百乔长文写贾鑫烧伤后心里话",
+    "hotCount": "7747600",
+    "url": "https://www.douyin.com/search/张百乔长文写贾鑫烧伤后心里话",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度774.8w",
+    "_fmtHeat": "774.8w"
+  },
+  {
+    "index": 18,
+    "title": "真正好吃的美味在民间",
+    "hotCount": "7744350",
+    "url": "https://www.douyin.com/search/真正好吃的美味在民间",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度774.4w",
+    "_fmtHeat": "774.4w"
+  },
+  {
+    "index": 19,
+    "title": "妈妈的话是家里的圣旨",
+    "hotCount": "7736013",
+    "url": "https://www.douyin.com/search/妈妈的话是家里的圣旨",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度773.6w",
+    "_fmtHeat": "773.6w"
+  },
+  {
+    "index": 20,
+    "title": "西班牙足协停赛悼念德米格尔",
+    "hotCount": "7734569",
+    "url": "https://www.douyin.com/search/西班牙足协停赛悼念德米格尔",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度773.5w",
+    "_fmtHeat": "773.5w"
+  },
+  {
+    "index": 21,
+    "title": "中方特使特代本月将赴多国访问",
+    "hotCount": "7727809",
+    "url": "https://www.douyin.com/search/中方特使特代本月将赴多国访问",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度772.8w",
+    "_fmtHeat": "772.8w"
+  },
+  {
+    "index": 22,
+    "title": "金价回落消费者趁机购金",
+    "hotCount": "7726637",
+    "url": "https://www.douyin.com/search/金价回落消费者趁机购金",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度772.7w",
+    "_fmtHeat": "772.7w"
+  },
+  {
+    "index": 23,
+    "title": "广东男篮外援弗格正式离队",
+    "hotCount": "7726149",
+    "url": "https://www.douyin.com/search/广东男篮外援弗格正式离队",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度772.6w",
+    "_fmtHeat": "772.6w"
+  },
+  {
+    "index": 24,
+    "title": "陈泽发布1103纪录片为你而来",
+    "hotCount": "7720292",
+    "url": "https://www.douyin.com/search/陈泽发布1103纪录片为你而来",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度772.0w",
+    "_fmtHeat": "772.0w"
+  },
+  {
+    "index": 25,
+    "title": "原神7.2新地图快速上手攻略",
+    "hotCount": "7719057",
+    "url": "https://www.douyin.com/search/原神7.2新地图快速上手攻略",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度771.9w",
+    "_fmtHeat": "771.9w"
+  },
+  {
+    "index": 26,
+    "title": "S16淘汰赛热点赛事观察",
+    "hotCount": "7714159",
+    "url": "https://www.douyin.com/search/S16淘汰赛热点赛事观察",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度771.4w",
+    "_fmtHeat": "771.4w"
+  },
+  {
+    "index": 27,
+    "title": "深度解析后会友期背后看点",
+    "hotCount": "7713388",
+    "url": "https://www.douyin.com/search/深度解析后会友期背后看点",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度771.3w",
+    "_fmtHeat": "771.3w"
+  },
+  {
+    "index": 28,
+    "title": "你这头发在哪烫的",
+    "hotCount": "7707088",
+    "url": "https://www.douyin.com/search/你这头发在哪烫的",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度770.7w",
+    "_fmtHeat": "770.7w"
+  },
+  {
+    "index": 29,
+    "title": "iG走心文案致敬仁川夺冠八周年",
+    "hotCount": "7706532",
+    "url": "https://www.douyin.com/search/iG走心文案致敬仁川夺冠八周年",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度770.7w",
+    "_fmtHeat": "770.7w"
+  },
+  {
+    "index": 30,
+    "title": "我的S16八强观赛日记",
+    "hotCount": "7701222",
+    "url": "https://www.douyin.com/search/我的S16八强观赛日记",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度770.1w",
+    "_fmtHeat": "770.1w"
+  },
+  {
+    "index": 31,
+    "title": "后会友期的细节越挖越有",
+    "hotCount": "7699254",
+    "url": "https://www.douyin.com/search/后会友期的细节越挖越有",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度769.9w",
+    "_fmtHeat": "769.9w"
+  },
+  {
+    "index": 32,
+    "title": "万物皆可加入自动健身团",
+    "hotCount": "7693655",
+    "url": "https://www.douyin.com/search/万物皆可加入自动健身团",
+    "_genDesc": "健康运动话题受关注度提升，健身达人分享训练计划与饮食建议，激励大批用户开启锻炼模式，跟练打卡成风潮，当前热度769.4w",
+    "_fmtHeat": "769.4w"
+  },
+  {
+    "index": 33,
+    "title": "一周不重样的韩系秋冬穿搭",
+    "hotCount": "7682538",
+    "url": "https://www.douyin.com/search/一周不重样的韩系秋冬穿搭",
+    "_genDesc": "时尚穿搭类话题火爆，博主分享穿搭技巧与造型灵感，年轻用户积极参与模仿创作，带动相关话题持续走高，当前热度768.3w",
+    "_fmtHeat": "768.3w"
+  },
+  {
+    "index": 34,
+    "title": "厉娜真的很会穿搭啊",
+    "hotCount": "7679960",
+    "url": "https://www.douyin.com/search/厉娜真的很会穿搭啊",
+    "_genDesc": "时尚穿搭类话题火爆，博主分享穿搭技巧与造型灵感，年轻用户积极参与模仿创作，带动相关话题持续走高，当前热度768.0w",
+    "_fmtHeat": "768.0w"
+  },
+  {
+    "index": 35,
+    "title": "第五人格新赛季磷光症机制爆料",
+    "hotCount": "7679929",
+    "url": "https://www.douyin.com/search/第五人格新赛季磷光症机制爆料",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度768.0w",
+    "_fmtHeat": "768.0w"
+  },
+  {
+    "index": 36,
+    "title": "商家你好我来返图了",
+    "hotCount": "7676469",
+    "url": "https://www.douyin.com/search/商家你好我来返图了",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度767.6w",
+    "_fmtHeat": "767.6w"
+  },
+  {
+    "index": 37,
+    "title": "2026中国广播电视精品创作大会",
+    "hotCount": "7658364",
+    "url": "https://www.douyin.com/search/2026中国广播电视精品创作大会",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度765.8w",
+    "_fmtHeat": "765.8w"
+  },
+  {
+    "index": 38,
+    "title": "60块逛吃川菜博物馆",
+    "hotCount": "7657870",
+    "url": "https://www.douyin.com/search/60块逛吃川菜博物馆",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度765.8w",
+    "_fmtHeat": "765.8w"
+  },
+  {
+    "index": 39,
+    "title": "想到7个虞寻歌同框的是天才吧",
+    "hotCount": "7656074",
+    "url": "https://www.douyin.com/search/想到7个虞寻歌同框的是天才吧",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度765.6w",
+    "_fmtHeat": "765.6w"
+  },
+  {
+    "index": 40,
+    "title": "跟着周传雄在南昌吃顿不辣的",
+    "hotCount": "7652819",
+    "url": "https://www.douyin.com/search/跟着周传雄在南昌吃顿不辣的",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度765.3w",
+    "_fmtHeat": "765.3w"
+  },
+  {
+    "index": 41,
+    "title": "英国男子花费28年完成环球徒步",
+    "hotCount": "7648308",
+    "url": "https://www.douyin.com/search/英国男子花费28年完成环球徒步",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度764.8w",
+    "_fmtHeat": "764.8w"
+  },
+  {
+    "index": 42,
+    "title": "霸王龙舞步转场挑战",
+    "hotCount": "7643133",
+    "url": "https://www.douyin.com/search/霸王龙舞步转场挑战",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度764.3w",
+    "_fmtHeat": "764.3w"
+  },
+  {
+    "index": 43,
+    "title": "没想到广西烧烤这么好吃",
+    "hotCount": "7637526",
+    "url": "https://www.douyin.com/search/没想到广西烧烤这么好吃",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度763.8w",
+    "_fmtHeat": "763.8w"
+  },
+  {
+    "index": 44,
+    "title": "11月你躲不掉的喜事",
+    "hotCount": "7634490",
+    "url": "https://www.douyin.com/search/11月你躲不掉的喜事",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度763.4w",
+    "_fmtHeat": "763.4w"
+  },
+  {
+    "index": 45,
+    "title": "你说那时我们太幼稚",
+    "hotCount": "7633593",
+    "url": "https://www.douyin.com/search/你说那时我们太幼稚",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度763.4w",
+    "_fmtHeat": "763.4w"
+  },
+  {
+    "index": 46,
+    "title": "灌十个鸡蛋的加长版油条",
+    "hotCount": "7631990",
+    "url": "https://www.douyin.com/search/灌十个鸡蛋的加长版油条",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度763.2w",
+    "_fmtHeat": "763.2w"
+  },
+  {
+    "index": 47,
+    "title": "ally马天宇互联网嘴替合体了",
+    "hotCount": "7630515",
+    "url": "https://www.douyin.com/search/ally马天宇互联网嘴替合体了",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度763.1w",
+    "_fmtHeat": "763.1w"
+  },
+  {
+    "index": 48,
+    "title": "来延吉当朝鲜族公主了",
+    "hotCount": "7629798",
+    "url": "https://www.douyin.com/search/来延吉当朝鲜族公主了",
+    "_genDesc": "古风/角色扮演类内容走红，创作者通过特色造型吸引关注，用户参与度高，评论区互动热烈，当前热度763.0w",
+    "_fmtHeat": "763.0w"
+  },
+  {
+    "index": 49,
+    "title": "徐艺洋拒收罗正大部分份子钱",
+    "hotCount": "7629473",
+    "url": "https://www.douyin.com/search/徐艺洋拒收罗正大部分份子钱",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度762.9w",
+    "_fmtHeat": "762.9w"
+  },
+  {
+    "index": 50,
+    "title": "冬日假发推荐",
+    "hotCount": "7628961",
+    "url": "https://www.douyin.com/search/冬日假发推荐",
+    "_genDesc": "该话题在抖音平台引发广泛关注与讨论，大量创作者围绕此主题产出优质内容，用户互动活跃，相关视频播放量持续增长，当前热度762.9w",
+    "_fmtHeat": "762.9w"
+  }
+];
+
+    // 统计
+    var totalCount = RAW.length;
+    var maxH = 0, sumH = 0;
+    for (var i = 0; i < RAW.length; i++) {
+        var h = parseInt(RAW[i].hotCount || RAW[i].hotValue || 0);
+        if (h > maxH) maxH = h;
+        sumH += h;
+    }
+    var avgH = totalCount > 0 ? sumH / totalCount : 0;
+
+    function fmtHot(n) {
+        n = parseInt(n || 0);
+        if (n >= 100000000) return (n / 100000000).toFixed(1) + '亿';
+        if (n >= 10000) return (n / 10000).toFixed(1) + 'w';  // 保留一位小数，如 1109.6w
+        return n.toString();
+    }
+
+    // 更新统计
+    document.getElementById('totalCount').textContent = totalCount;
+    document.getElementById('maxHeat').textContent = fmtHot(maxH);
+    document.getElementById('avgHeat').textContent = fmtHot(Math.round(avgH));
+
+    // 保持API返回的原始排名顺序（不重新排序）
+    // ⚠️ 数据一致性要求：必须使用API返回的原始数据，禁止修改排名、热度、链接
+    // RAW.sort(function(a, b) { return (a.index || 999) - (b.index || 999); });
+
+    // 渲染表格 - 显示TOP50
+    // ⚠️ 每条数据的URL必须是API返回的真实链接，禁止伪造或替换
+    // ⚠️ 热度值直接使用Python格式化后的值（_fmtHeat），确保与智能体表格一致
+    var html = '';
+    for (var i = 0; i < RAW.length && i < 50; i++) {
+        var d = RAW[i];
+        var rank = i + 1;
+        var title = d.title || d.word || '--';
+        // 直接使用Python格式化后的热度值，不再使用fmtHot函数
+        var heatDisplay = d._fmtHeat || fmtHot(d.hotCount || d.hotValue || 0);
+        var desc = d.desc || d.excerpt || d._genDesc || '';
+        // 链接必须使用API返回的真实URL
+        var url = d.url || d.schemeUrl || '#';
+
+        // TOP3 样式类
+        var rowCls = '', badgeHtml = '', tagHtml = '';
+
+        if (rank === 1) {
+            rowCls = 'row-top1';
+            badgeHtml = '<span class="rank-badge top1">🥇</span>';
+            tagHtml = '<span class="tag tag-new">新</span>';
+        } else if (rank === 2) {
+            rowCls = 'row-top2';
+            badgeHtml = '<span class="rank-badge top2">🥈</span>';
+            tagHtml = '<span class="tag tag-hot">热</span>';
+        } else if (rank === 3) {
+            rowCls = 'row-top3';
+            badgeHtml = '<span class="rank-badge top3">🥉</span>';
+            tagHtml = '<span class="tag tag-hot-rising">升</span>';
+        } else {
+            badgeHtml = '<span class="rank-normal">' + rank + '</span>';
+        }
+
+        html += '<tr class="' + rowCls + '" data-href="' + url + '">'
+            + '<td class="rank-cell">' + badgeHtml + '</td>'
+            + '<td class="info-cell">'
+            + '<a class="topic-title-link" href="' + url + '" target="_blank" onclick="event.stopPropagation()"><div class="topic-title">' + title + '</div></a>'
+            + '<div class="topic-desc">' + desc + '</div>'
+            + '</td><td class="heat-cell">'
+            + '<div class="heat-value">' + heatDisplay + '</div>';
+        if (tagHtml) {
+            html += '<div style="margin-top:3px">' + tagHtml + '</div>';
+        }
+        html += '</td></tr>';
+    }
+
+    document.getElementById('hotTableBody').innerHTML = html;
+
+    // 重新绑定行点击事件（动态插入后）
+    var rows = document.querySelectorAll('.hot-table tbody tr[data-href]');
+    rows.forEach(function(row) {
+        row.addEventListener('click', function(e) {
+            if (e.target.closest('button, a, .btn-export-pdf')) return;
+            var u = this.getAttribute('data-href');
+            if (u && u !== '#') window.location.href = u;
+        });
+    });
+})();
+
+// 导出PDF - 只截取 pdfContent 区域，单页自适应A4，支持链接跳转
+function exportPdf() {
+    var btn = document.querySelector('.btn-export-pdf');
+    btn.textContent = '生成中...';
+    btn.style.pointerEvents = 'none';
+
+    var target = document.getElementById('pdfContent');
+
+    // 收集所有链接信息 - 链接必须是API返回的真实URL
+    var links = [];
+    var rows = document.querySelectorAll('.hot-table tbody tr[data-href]');
+
+    rows.forEach(function(row, idx) {
+        var url = row.getAttribute('data-href');
+        if (url && url !== '#') {
+            links.push({
+                url: url,
+                top: row.offsetTop,
+                height: row.offsetHeight,
+                idx: idx
+            });
+        }
+    });
+
+    html2canvas(target, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#f0f0f5',
+        logging: false,
+        windowWidth: target.scrollWidth,
+        windowHeight: target.scrollHeight
+    }).then(function(canvas) {
+        var imgData = canvas.toDataURL('image/png');
+
+        var pdf = new jspdf.jsPDF('p', 'mm', 'a4');
+        var pdfW = pdf.internal.pageSize.getWidth();
+        var pdfH = pdf.internal.pageSize.getHeight();
+        var margin = 10;
+        var contentW = pdfW - margin * 2;
+        var contentH = pdfH - margin * 2;
+
+        var imgW = contentW;
+        var imgH = (canvas.height * imgW) / canvas.width;
+
+        // 计算缩放比例
+        var scaleX = imgW / target.scrollWidth;
+        var scaleY = imgH / target.scrollHeight;
+
+        // 计算内容在PDF中的位置
+        var imgX, imgY;
+        if (imgH > contentH) {
+            imgH = contentH;
+            imgW = (canvas.width * imgH) / canvas.height;
+            scaleX = imgW / target.scrollWidth;
+            scaleY = imgH / target.scrollHeight;
+            imgX = (contentW - imgW) / 2 + margin;
+            imgY = margin;
+        } else {
+            imgX = margin;
+            imgY = margin;
+        }
+
+        // 添加图片
+        pdf.addImage(imgData, 'PNG', imgX, imgY, imgW, imgH);
+
+        // 添加可点击链接注解（覆盖整行）
+        // 注意：PDF阅读器对链接注解的支持不一，但这是PDF规范的标准方式
+        links.forEach(function(link) {
+            // 转换坐标：HTML像素 -> PDF毫米
+            var pdfY = imgY + (link.top * scaleY);
+            var pdfH = Math.max(link.height * scaleY, 3); // 最小高度3mm确保可点击
+            var pdfX = imgX;
+            var pdfW = imgW;
+
+            // 使用 link 方法添加链接注解
+            // 这是PDF规范的标准方式，大多数现代PDF阅读器支持
+            pdf.link(pdfX, pdfY, pdfW, pdfH, { url: link.url });
+        });
+
+        var now = new Date();
+        var dateStr = now.getFullYear() +
+            String(now.getMonth()+1).padStart(2,'0') +
+            String(now.getDate()).padStart(2,'0') +
+            '_' +
+            String(now.getHours()).padStart(2,'0') +
+            String(now.getMinutes()).padStart(2,'0');
+
+        pdf.save('抖音实时热榜_' + dateStr + '.pdf');
+
+        btn.textContent = '导出 PDF';
+        btn.style.pointerEvents = '';
+
+        // 提示用户PDF链接功能
+        console.log('PDF已生成，包含' + links.length + '个可点击链接');
+    }).catch(function(err) {
+        alert('PDF 生成失败：' + err.message);
+        btn.textContent = '导出 PDF';
+        btn.style.pointerEvents = '';
+    });
+}
+</script>
+
+</body>
+</html>

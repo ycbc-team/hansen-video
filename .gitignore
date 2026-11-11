@@ -1,0 +1,8 @@
+# macOS 元数据（非项目产物）
+.DS_Store
+
+# WorkBuddy 内部状态目录（非项目产物，且受安全规则保护）
+.workbuddy/
+
+# 临时文件
+.BC.T_*
